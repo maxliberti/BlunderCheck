@@ -74,6 +74,50 @@ function createEngine() {
   return { init, analyzeFen, terminate };
 }
 
+// Parse PGN into SAN token list and headers for navigation
+export function parsePGNToSAN(pgn) {
+  // Reuse sanitizer
+  const sanitizePGN = (text) => {
+    if (!text) return '';
+    const raw = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+    const lines = raw.split('\n');
+    const headerLines = [];
+    const moveLines = [];
+    let inHeader = true;
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (inHeader && /^\[[^\]]+\]$/.test(trimmed)) {
+        headerLines.push(trimmed);
+        continue;
+      }
+      if (trimmed.length > 0) inHeader = false;
+      moveLines.push(line);
+    }
+    let movesText = moveLines.join('\n');
+    movesText = movesText.replace(/\[\%[^\]]*\]/g, '');
+    movesText = movesText.replace(/\{[^}]*\}/g, '');
+    movesText = movesText.replace(/\$\d+/g, '');
+    movesText = movesText
+      .split('\n')
+      .map((l) => l.trim().replace(/\s+/g, ' '))
+      .filter((l) => l.length > 0)
+      .join('\n');
+    const headerBlock = headerLines.join('\n');
+    const finalPGN = headerBlock ? `${headerBlock}\n\n${movesText}` : movesText;
+    return finalPGN.trim();
+  };
+
+  const clean = sanitizePGN(pgn);
+  const parts = clean.split(/\n\n/);
+  const headerText = parts.length > 1 ? parts[0] : '';
+  const moveSection = parts.length > 1 ? parts.slice(1).join('\n\n') : parts[0];
+  const stripped = moveSection.replace(/\s*(1-0|0-1|1\/2-1\/2|\*)\s*$/i, '').trim();
+  const withoutNums = stripped.replace(/\b\d+\.(\.\.)?/g, '').trim();
+  const tokens = withoutNums.split(/\s+/).filter(Boolean);
+
+  return { headers: headerText, tokens };
+}
+
 export async function analyzePGN(pgn, { depth = 12 } = {}) {
   const game = new Chess();
 

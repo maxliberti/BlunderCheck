@@ -1,16 +1,46 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Chessboard from 'chessboardjsx';
 import { Chess } from 'chess.js';
 import useStockfish from './useStockfish';
-import { analyzePGN } from './analyzeGame';
+import { analyzePGN, parsePGNToSAN } from './analyzeGame';
+import api from './api';
+import { useAuth } from './AuthContext';
 
 export default function GameReviewChessboard() {
+  const { token, setToken } = useAuth();
   const [game, setGame] = useState(new Chess());
   const [fen, setFen] = useState(game.fen());
   const { evaluation, bestMove, isAnalyzing } = useStockfish(fen);
   const [pgn, setPgn] = useState('');
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchResults, setBatchResults] = useState([]);
+  const [saveName, setSaveName] = useState('');
+  const [myGames, setMyGames] = useState([]);
+  const [loadingGames, setLoadingGames] = useState(false);
+  const [showGamesModal, setShowGamesModal] = useState(false);
+
+  // PGN navigation state
+  const [mainline, setMainline] = useState([]); // array of SAN tokens
+  const [plyIndex, setPlyIndex] = useState(0); // how many mainline moves are applied
+  const [inDeviation, setInDeviation] = useState(false);
+  const [deviation, setDeviation] = useState([]); // SAN tokens from deviation
+
+  const navBase = useMemo(() => new Chess(), []);
+
+  const computeFen = (ml = mainline, idx = plyIndex, dev = deviation) => {
+    const g = new Chess();
+    for (let i = 0; i < Math.min(idx, ml.length); i++) {
+      const mv = g.move(ml[i], { sloppy: true });
+      if (!mv) break;
+    }
+    if (dev && dev.length) {
+      for (const san of dev) {
+        const mv = g.move(san, { sloppy: true });
+        if (!mv) break;
+      }
+    }
+    return g.fen();
+  };
 
   // chessboardjsx passes a single object: { sourceSquare, targetSquare, piece }
   function onDrop({ sourceSquare, targetSquare }) {
@@ -23,6 +53,17 @@ export default function GameReviewChessboard() {
 
       if (move === null) return false; // illegal move
 
+      // Determine if this matches the next mainline move; if not, start/continue deviation
+      const nextMain = mainline[plyIndex];
+      if (!inDeviation && nextMain && move.san === nextMain) {
+        // Follow mainline
+        setPlyIndex((i) => i + 1);
+      } else {
+        // Create or extend deviation
+        setInDeviation(true);
+        setDeviation((d) => [...d, move.san]);
+      }
+
       setFen(game.fen());
       return true;
     } catch (e) {
@@ -30,7 +71,39 @@ export default function GameReviewChessboard() {
     }
   }
 
+  function syncBoardToState(newMain = mainline, newPly = plyIndex, newDev = deviation) {
+    const newFen = computeFen(newMain, newPly, newDev);
+    const g = new Chess();
+    g.load(newFen);
+    setGame(g);
+    setFen(newFen);
+  }
+
+  // Helpers for games API
+  async function refreshGames() {
+    if (!token) return;
+    setLoadingGames(true);
+    try {
+      const list = await api.games.list();
+      setMyGames(list);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setLoadingGames(false);
+    }
+  }
+
+  useEffect(() => {
+    // Load games once when user logs in
+    if (token) {
+      refreshGames();
+    } else {
+      setMyGames([]);
+    }
+  }, [token]);
+
   return (
+    <>
     <div style={{ width: '560px', margin: '0 auto' }}>
       <h1>Chess Review Board</h1> {/* Temporary test element */}
       <Chessboard
@@ -58,6 +131,63 @@ export default function GameReviewChessboard() {
         )}
       </div>
 
+      {/* Auth + Save/Load Controls */}
+      <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 6 }}>
+        {!token ? (
+          <div>
+            <button onClick={() => api.auth.googleStart()}>Sign in with Google</button>
+            <p style={{ marginTop: 8, fontSize: 12, color: '#555' }}>Sign in to save and load your PGNs.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#2d6a4f' }}>Signed in</span>
+              <button
+                onClick={() => {
+                  setToken('');
+                  setMyGames([]);
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                placeholder="Optional game name"
+                style={{ flex: 1 }}
+              />
+              <button
+                onClick={async () => {
+                  try {
+                    if (!pgn.trim()) return alert('Paste a PGN first.');
+                    await api.games.create({ name: saveName || undefined, pgn, notes: undefined });
+                    setSaveName('');
+                    await refreshGames();
+                    alert('Saved.');
+                  } catch (e) {
+                    alert(e.message);
+                  }
+                }}
+              >
+                Save PGN
+              </button>
+              <button
+                onClick={async () => {
+                  setShowGamesModal(true);
+                  await refreshGames();
+                }}
+                disabled={loadingGames}
+              >
+                {loadingGames ? 'Loading...' : 'My Games'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div style={{ marginTop: 24 }}>
         <h2>Analyze PGN</h2>
         <textarea
@@ -67,13 +197,20 @@ export default function GameReviewChessboard() {
           rows={8}
           style={{ width: '100%', fontFamily: 'monospace' }}
         />
-        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+        <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             onClick={async () => {
               try {
                 setBatchLoading(true);
                 const results = await analyzePGN(pgn, { depth: 12 });
                 setBatchResults(results);
+                // Initialize navigation: parse PGN into mainline and reset state
+                const { tokens } = parsePGNToSAN(pgn);
+                setMainline(tokens);
+                setPlyIndex(0);
+                setInDeviation(false);
+                setDeviation([]);
+                syncBoardToState(tokens, 0, []);
               } catch (err) {
                 alert(err?.message || 'Failed to analyze PGN');
               } finally {
@@ -84,6 +221,58 @@ export default function GameReviewChessboard() {
           >
             {batchLoading ? 'Analyzing...' : 'Analyze PGN'}
           </button>
+
+          {/* Navigation controls */}
+          <button
+            onClick={() => {
+              if (inDeviation) {
+                // Undo deviation move
+                setDeviation((d) => {
+                  const nd = d.slice(0, -1);
+                  const newDev = nd;
+                  syncBoardToState(mainline, plyIndex, newDev);
+                  if (newDev.length === 0) setInDeviation(false);
+                  return newDev;
+                });
+              } else {
+                // Step back mainline
+                setPlyIndex((i) => {
+                  const ni = Math.max(0, i - 1);
+                  syncBoardToState(mainline, ni, []);
+                  return ni;
+                });
+              }
+            }}
+            disabled={(!inDeviation && plyIndex === 0) || (inDeviation && deviation.length === 0)}
+          >
+            ◀ Prev
+          </button>
+
+          <button
+            onClick={() => {
+              if (inDeviation) return; // Do not advance mainline while deviating
+              setPlyIndex((i) => {
+                const ni = Math.min(mainline.length, i + 1);
+                syncBoardToState(mainline, ni, []);
+                return ni;
+              });
+            }}
+            disabled={inDeviation || plyIndex >= mainline.length}
+          >
+            Next ▶
+          </button>
+
+          {inDeviation && (
+            <button
+              onClick={() => {
+                setInDeviation(false);
+                setDeviation([]);
+                syncBoardToState(mainline, plyIndex, []);
+              }}
+            >
+              Return to PGN
+            </button>
+          )}
         </div>
 
         {batchResults.length > 0 && (
@@ -100,5 +289,76 @@ export default function GameReviewChessboard() {
         )}
       </div>
     </div>
+
+    {/* My Games Modal */}
+    {showGamesModal && (
+      <div
+        role="dialog"
+        aria-modal="true"
+        style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}
+        onClick={() => setShowGamesModal(false)}
+      >
+        <div
+          style={{ background: '#fff', borderRadius: 8, width: '90%', maxWidth: 700, maxHeight: '80vh', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,.3)' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <strong>My Games</strong>
+            <button onClick={() => setShowGamesModal(false)}>Close</button>
+          </div>
+          <div style={{ padding: 16, overflow: 'auto', maxHeight: '65vh' }}>
+            {loadingGames && <p>Loading...</p>}
+            {!loadingGames && myGames.length === 0 && <p>No saved games yet.</p>}
+            {!loadingGames && myGames.length > 0 && (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {myGames.map((g) => (
+                  <li key={g._id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f2f2f2' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name || '(unnamed)'}</div>
+                      <div style={{ fontSize: 12, color: '#666' }}>{new Date(g.updatedAt).toLocaleString()}</div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setPgn(g.pgn || '');
+                        try {
+                          const { tokens } = parsePGNToSAN(g.pgn || '');
+                          setMainline(tokens);
+                          setPlyIndex(0);
+                          setInDeviation(false);
+                          setDeviation([]);
+                          syncBoardToState(tokens, 0, []);
+                          setShowGamesModal(false);
+                        } catch (e) {
+                          alert('Loaded PGN, but failed to parse for navigation.');
+                        }
+                      }}
+                    >
+                      Load
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!confirm('Delete this saved game?')) return;
+                        try {
+                          await api.games.delete(g._id);
+                          await refreshGames();
+                        } catch (e) {
+                          alert(e.message);
+                        }
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

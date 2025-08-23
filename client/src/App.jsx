@@ -1,22 +1,21 @@
 import './App.css';
-import {BrowserRouter, Routes, Route} from "react-router-dom";
-import 'bootstrap/dist/css/bootstrap.min.css';
-import CreateUser from "./CreateUser.jsx";
-import Users from "./Users.jsx";
-import UpdateUser from "./UpdateUser.jsx";
+import {BrowserRouter, Routes, Route, Navigate} from "react-router-dom";
 import GameReviewChessboard from "./Chessboard.jsx";
+import { AuthProvider } from './AuthContext.jsx';
+import AuthCallback from './AuthCallback.jsx';
 
 function App() {
 
   return (
     <div>
         <BrowserRouter>
+          <AuthProvider>
             <Routes>
-                <Route path='/' element={<Users />}></Route>
-                <Route path='/create' element={<CreateUser />}></Route>
-                <Route path='/update/:id' element={<UpdateUser />}></Route>
-                <Route path='/review' element={<GameReviewChessboard />}></Route>
+                <Route path='/' element={<GameReviewChessboard />}></Route>
+                <Route path='/review' element={<Navigate to="/" replace />}></Route>
+                <Route path='/auth/callback' element={<AuthCallback />}></Route>
             </Routes>
+          </AuthProvider>
         </BrowserRouter>
     </div>
   );
