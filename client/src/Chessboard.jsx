@@ -57,6 +57,21 @@ export default function GameReviewChessboard() {
     return { x, y };
   }
 
+  // Normalize evaluation to be from White's perspective, regardless of side to move
+  const sideToMove = game.turn() === 'w' ? 'white' : 'black';
+  const effectiveEval = useMemo(() => {
+    if (evaluation == null) return null;
+    // Stockfish scores are from side-to-move perspective; flip when Black to move
+    return sideToMove === 'white' ? evaluation : -evaluation;
+  }, [evaluation, sideToMove]);
+
+  // For mate display, infer winner from effective evaluation sign
+  const mateWinner = useMemo(() => {
+    if (!mate) return null;
+    if (effectiveEval == null) return null;
+    return effectiveEval > 0 ? 'white' : 'black';
+  }, [mate, effectiveEval]);
+
   // Hover highlight: only outline the square under the cursor
   const [hoverSq, setHoverSq] = useState('');
   const squareStyles = useMemo(() => {
@@ -162,17 +177,17 @@ export default function GameReviewChessboard() {
           {/* Mate state fills entire bar with winner color */}
           {mate ? (
             <>
-              <div style={{ position: 'absolute', inset: 0, background: mate.winner === 'white' ? '#e6e6e6' : '#1f1f1f' }} />
+              <div style={{ position: 'absolute', inset: 0, background: mateWinner === 'white' ? '#e6e6e6' : '#1f1f1f' }} />
               <div
                 style={{
                   position: 'absolute', inset: 0,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: 800,
                   fontSize: 9,
-                  color: mate.winner === 'white' ? '#333' : '#ddd',
-                  textShadow: mate.winner === 'white' ? 'none' : '0 1px 2px rgba(0,0,0,0.6)'
+                  color: mateWinner === 'white' ? '#333' : '#ddd',
+                  textShadow: mateWinner === 'white' ? 'none' : '0 1px 2px rgba(0,0,0,0.6)'
                 }}
-                title={`Mate in ${mate.moves} for ${mate.winner}`}
+                title={`Mate in ${mate.moves} for ${mateWinner}`}
               >
                 {`M${mate.moves}`}
               </div>
@@ -186,7 +201,7 @@ export default function GameReviewChessboard() {
                   left: 0,
                   right: 0,
                   top: 0,
-                  height: `${evalToPercentWhite(evaluation)}%`,
+                  height: `${evalToPercentWhite(effectiveEval)}%`,
                   background: '#e6e6e6'
                 }}
               />
@@ -197,7 +212,7 @@ export default function GameReviewChessboard() {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  height: `${100 - evalToPercentWhite(evaluation)}%`,
+                  height: `${100 - evalToPercentWhite(effectiveEval)}%`,
                   background: '#1f1f1f'
                 }}
               />
@@ -218,7 +233,7 @@ export default function GameReviewChessboard() {
               …
             </div>
           ) : !mate ? (
-            evaluation !== null ? (
+            effectiveEval !== null ? (
               <>
                 {/* White label (top) shows eval from White perspective */}
                 <div
@@ -233,7 +248,7 @@ export default function GameReviewChessboard() {
                   }}
                   title="White evaluation (pawns)"
                 >
-                  {`${evaluation >= 0 ? '+' : ''}${evaluation.toFixed(2)}`}
+                  {`${effectiveEval >= 0 ? '+' : ''}${effectiveEval.toFixed(2)}`}
                 </div>
                 {/* Black label (bottom) shows eval from Black perspective (negated) */}
                 <div
@@ -248,7 +263,7 @@ export default function GameReviewChessboard() {
                   }}
                   title="Black evaluation (pawns)"
                 >
-                  {`${(-evaluation) >= 0 ? '+' : ''}${(-evaluation).toFixed(2)}`}
+                  {`${(-effectiveEval) >= 0 ? '+' : ''}${(-effectiveEval).toFixed(2)}`}
                 </div>
               </>
             ) : (
