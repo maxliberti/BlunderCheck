@@ -2,19 +2,19 @@ body {
   margin: 0;
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-  background-color: #f8f9fa;
-  color: #333;
+  background-color: #3b342e; /* soft brown */
+  color: #ffffff; /* white text */
 }
 
 button {
-  background-color: #2d6a4f;
-  color: white;
-  border: none;
+  background-color: #2d6a4f; /* deep green accent */
+  color: #ffffff;
+  border: 1px solid rgba(0,0,0,0.2);
   padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, opacity 0.2s, border-color 0.2s;
 }
 
 button:hover {
@@ -22,13 +22,24 @@ button:hover {
 }
 
 button:disabled {
-  background-color: #cccccc;
+  background-color: #555555;
+  color: #dddddd;
+  border-color: #444444;
   cursor: not-allowed;
 }
 
 input, textarea {
   padding: 8px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid #6a5f55; /* soft brown border */
   border-radius: 4px;
   font-size: 14px;
+  background-color: #4a423a; /* soft brown field */
+  color: #ffffff;
 }
+
+input::placeholder,
+textarea::placeholder {
+  color: #ffffff;
+}
+
+a { color: inherit; }

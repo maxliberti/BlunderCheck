@@ -18,7 +18,22 @@ const passport = require('passport');
 const configurePassport = require('./config/passport');
 
 const app = express();
-app.use(cors());
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+// In development, accept requests from any origin (useful for localhost/127.0.0.1 variants).
+// In production, set FRONTEND_URL to your exact domain and tighten this.
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow server-to-server or curl (no origin) and any browser origin in dev
+    if (!origin) return callback(null, true);
+    // If you want to restrict in dev to a list, use an array check here.
+    return callback(null, true);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false,
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(passport.initialize());
 configurePassport();

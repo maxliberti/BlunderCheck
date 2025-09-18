@@ -6,30 +6,41 @@ const passport = require('passport');
 
 const router = express.Router();
 
+// Register with name, username, email (optional), and password
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
-    const existing = await User.findOne({ email });
-    if (existing) return res.status(409).json({ error: 'Email already in use' });
+    const { name, username, email, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
+
+    // Check uniqueness for username and (if provided) email
+    const existsUser = await User.findOne({ $or: [ { username: username?.toLowerCase() }, ...(email ? [{ email: email?.toLowerCase() }] : []) ] });
+    if (existsUser) {
+      const taken = existsUser.username?.toLowerCase() === username?.toLowerCase() ? 'Username' : 'Email';
+      return res.status(409).json({ error: `${taken} already in use` });
+    }
+
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await User.create({ name, email, passwordHash });
+    const user = await User.create({ name, username: username?.toLowerCase(), email: email?.toLowerCase(), passwordHash });
     const token = jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email } });
+    res.status(201).json({ token, user: { id: user._id, name: user.name, username: user.username, email: user.email } });
   } catch (e) {
     res.status(500).json({ error: 'Registration failed' });
   }
 });
 
+// Login with identifier (username or email) and password
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    const { identifier, password } = req.body;
+    if (!identifier || !password) return res.status(400).json({ error: 'Identifier and password are required' });
+    const isEmail = identifier.includes('@');
+    const query = isEmail ? { email: identifier.toLowerCase() } : { username: identifier.toLowerCase() };
+    const user = await User.findOne(query);
+    if (!user || !user.passwordHash) return res.status(401).json({ error: 'Invalid credentials' });
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id: user._id, name: user.name, email: user.email } });
+    res.json({ token, user: { id: user._id, name: user.name, username: user.username, email: user.email } });
   } catch (e) {
     res.status(500).json({ error: 'Login failed' });
   }

@@ -19,6 +19,8 @@ export default function GameReviewChessboard() {
   const [loadingGames, setLoadingGames] = useState(false);
   const [showGamesModal, setShowGamesModal] = useState(false);
 
+  // No inline auth forms; dedicated /login page is used
+
   // PGN navigation state
   const [mainline, setMainline] = useState([]); // array of SAN tokens
   const [plyIndex, setPlyIndex] = useState(0); // how many mainline moves are applied
@@ -105,7 +107,6 @@ export default function GameReviewChessboard() {
   return (
     <>
     <div style={{ width: '560px', margin: '0 auto' }}>
-      <h1>Chess Review Board</h1> {/* Temporary test element */}
       <Chessboard
         position={fen}
         onDrop={onDrop}
@@ -132,25 +133,15 @@ export default function GameReviewChessboard() {
       </div>
 
       {/* Auth + Save/Load Controls */}
-      <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 6 }}>
+      <div style={{ marginTop: 16, padding: 12, border: '1px solid #5a4f45', borderRadius: 6 }}>
         {!token ? (
-          <div>
-            <button onClick={() => api.auth.googleStart()}>Sign in with Google</button>
-            <p style={{ marginTop: 8, fontSize: 12, color: '#555' }}>Sign in to save and load your PGNs.</p>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <a href="/login" style={{ textDecoration: 'none' }}>
+              <button>Login to save and load games</button>
+            </a>
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: '#2d6a4f' }}>Signed in</span>
-              <button
-                onClick={() => {
-                  setToken('');
-                  setMyGames([]);
-                }}
-              >
-                Sign out
-              </button>
-            </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 type="text"
@@ -305,7 +296,7 @@ export default function GameReviewChessboard() {
           style={{ background: '#fff', borderRadius: 8, width: '90%', maxWidth: 700, maxHeight: '80vh', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,.3)' }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #5a4f45', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <strong>My Games</strong>
             <button onClick={() => setShowGamesModal(false)}>Close</button>
           </div>
@@ -315,7 +306,7 @@ export default function GameReviewChessboard() {
             {!loadingGames && myGames.length > 0 && (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                 {myGames.map((g) => (
-                  <li key={g._id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f2f2f2' }}>
+                  <li key={g._id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #5a4f45' }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name || '(unnamed)'}</div>
                       <div style={{ fontSize: 12, color: '#666' }}>{new Date(g.updatedAt).toLocaleString()}</div>

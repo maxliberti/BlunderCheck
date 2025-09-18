@@ -31,6 +31,12 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
 
 export const api = {
   auth: {
+    async register({ name, username, email, password }) {
+      return request('/api/auth/register', { method: 'POST', body: { name, username, email, password } });
+    },
+    async login({ identifier, password }) {
+      return request('/api/auth/login', { method: 'POST', body: { identifier, password } });
+    },
     googleStart() {
       window.location.href = `${API_BASE}/api/auth/google`;
     },
