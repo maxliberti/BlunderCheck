@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Chessboard from 'chessboardjsx';
 import { Chess } from 'chess.js';
 import useStockfish from './useStockfish';
@@ -10,7 +10,7 @@ export default function GameReviewChessboard() {
   const { token, setToken } = useAuth();
   const [game, setGame] = useState(new Chess());
   const [fen, setFen] = useState(game.fen());
-  const { evaluation, bestMove, isAnalyzing } = useStockfish(fen);
+  const { evaluation, bestMove, isAnalyzing, mate } = useStockfish(fen);
   const [pgn, setPgn] = useState('');
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchResults, setBatchResults] = useState([]);
@@ -29,6 +29,46 @@ export default function GameReviewChessboard() {
 
   const navBase = useMemo(() => new Chess(), []);
 
+  // Best move arrow state and board measurements
+  const [showBestArrow, setShowBestArrow] = useState(false);
+  const boardWrapRef = useRef(null);
+  const [boardSize, setBoardSize] = useState(560);
+  useEffect(() => {
+    function measure() {
+      const el = boardWrapRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const size = Math.min(rect.width, rect.height || rect.width);
+      if (size && Math.abs(size - boardSize) > 0.5) setBoardSize(size);
+    }
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [boardSize]);
+
+  function squareToCenterXY(sq, size) {
+    if (!sq || sq.length < 2) return { x: 0, y: 0 };
+    const file = sq.charCodeAt(0) - 'a'.charCodeAt(0); // 0..7
+    const rank = parseInt(sq[1], 10); // 1..8
+    const sqSize = size / 8;
+    // chessboardjsx draws rank 8 at the top, so invert rank for y
+    const x = file * sqSize + sqSize / 2;
+    const y = (8 - rank) * sqSize + sqSize / 2;
+    return { x, y };
+  }
+
+  // Hover highlight: only outline the square under the cursor
+  const [hoverSq, setHoverSq] = useState('');
+  const squareStyles = useMemo(() => {
+    if (!hoverSq) return {};
+    return {
+      [hoverSq]: {
+        boxShadow: 'inset 0 0 0 3px #2d6a4f',
+        backgroundColor: 'rgba(45,106,79,0.1)'
+      }
+    };
+  }, [hoverSq]);
+
   const computeFen = (ml = mainline, idx = plyIndex, dev = deviation) => {
     const g = new Chess();
     for (let i = 0; i < Math.min(idx, ml.length); i++) {
@@ -43,6 +83,15 @@ export default function GameReviewChessboard() {
     }
     return g.fen();
   };
+
+  // Convert centipawn evaluation to a 0..100% white-advantage fill using a smooth mapping
+  function evalToPercentWhite(ev) {
+    if (ev === null || Number.isNaN(ev)) return 50; // neutral when unknown
+    // Smooth saturating function: tanh to keep within bounds
+    const t = Math.tanh(ev / 3); // ev in pawns; scale controls steepness
+    const pct = 50 + 50 * t; // -1..1 -> 0..100
+    return Math.max(0, Math.min(100, pct));
+  }
 
   // chessboardjsx passes a single object: { sourceSquare, targetSquare, piece }
   function onDrop({ sourceSquare, targetSquare }) {
@@ -106,30 +155,184 @@ export default function GameReviewChessboard() {
 
   return (
     <>
-    <div style={{ width: '560px', margin: '0 auto' }}>
-      <Chessboard
-        position={fen}
-        onDrop={onDrop}
-        draggable={true}
-        allowDrag={({ piece }) => {
-          // Only allow dragging pieces of the side to move
-          const sideToMove = game.turn() === 'w' ? 'w' : 'b';
-          return piece && piece[0] === sideToMove;
-        }}
-        boardStyle={{
-          borderRadius: '5px',
-          boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)',
-        }}
-      />
-      <div style={{ marginTop: '20px' }}>
-        {isAnalyzing ? (
-          <p>Analyzing position...</p>
-        ) : (
-          <div>
-            <p><strong>Evaluation:</strong> {evaluation !== null ? evaluation : 'N/A'}</p>
-            <p><strong>Best move:</strong> {bestMove || 'N/A'}</p>
-          </div>
-        )}
+    <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', justifyContent: 'center' }}>
+        {/* Eval bar on the left */}
+        <div style={{ flex: '0 0 28px', position: 'relative', border: '1px solid #5a4f45', borderRadius: 4, overflow: 'hidden' }} aria-label="Evaluation bar">
+          {/* Mate state fills entire bar with winner color */}
+          {mate ? (
+            <>
+              <div style={{ position: 'absolute', inset: 0, background: mate.winner === 'white' ? '#e6e6e6' : '#1f1f1f' }} />
+              <div
+                style={{
+                  position: 'absolute', inset: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 800,
+                  fontSize: 9,
+                  color: mate.winner === 'white' ? '#333' : '#ddd',
+                  textShadow: mate.winner === 'white' ? 'none' : '0 1px 2px rgba(0,0,0,0.6)'
+                }}
+                title={`Mate in ${mate.moves} for ${mate.winner}`}
+              >
+                {`M${mate.moves}`}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* white fill from top */}
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  height: `${evalToPercentWhite(evaluation)}%`,
+                  background: '#e6e6e6'
+                }}
+              />
+              {/* black fill covers remainder */}
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: `${100 - evalToPercentWhite(evaluation)}%`,
+                  background: '#1f1f1f'
+                }}
+              />
+            </>
+          )}
+          {/* numeric value overlay */}
+          {isAnalyzing && !mate ? (
+            <div
+              style={{
+                position: 'absolute', inset: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: 9,
+                color: '#bbb',
+                textShadow: 'none'
+              }}
+            >
+              …
+            </div>
+          ) : !mate ? (
+            evaluation !== null ? (
+              <>
+                {/* White label (top) shows eval from White perspective */}
+                <div
+                  style={{
+                    position: 'absolute', top: 6, left: 0, right: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: 9,
+                    color: '#333',
+                    textShadow: 'none',
+                    pointerEvents: 'none'
+                  }}
+                  title="White evaluation (pawns)"
+                >
+                  {`${evaluation >= 0 ? '+' : ''}${evaluation.toFixed(2)}`}
+                </div>
+                {/* Black label (bottom) shows eval from Black perspective (negated) */}
+                <div
+                  style={{
+                    position: 'absolute', bottom: 6, left: 0, right: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700,
+                    fontSize: 9,
+                    color: '#ddd',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.6)',
+                    pointerEvents: 'none'
+                  }}
+                  title="Black evaluation (pawns)"
+                >
+                  {`${(-evaluation) >= 0 ? '+' : ''}${(-evaluation).toFixed(2)}`}
+                </div>
+              </>
+            ) : (
+              <div
+                style={{
+                  position: 'absolute', inset: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: 9,
+                  color: '#bbb',
+                  textShadow: 'none'
+                }}
+              >
+                N/A
+              </div>
+            )
+          ) : null}
+        </div>
+        <div style={{ flex: '0 0 auto', position: 'relative' }} ref={boardWrapRef}>
+          <Chessboard
+            position={fen}
+            onDrop={onDrop}
+            draggable={true}
+            onMouseOverSquare={(sq) => setHoverSq(sq)}
+            onMouseOutSquare={() => setHoverSq('')}
+            allowDrag={({ piece }) => {
+              // Only allow dragging pieces of the side to move
+              const sideToMove = game.turn() === 'w' ? 'w' : 'b';
+              return piece && piece[0] === sideToMove;
+            }}
+            width={560}
+            squareStyles={squareStyles}
+            boardStyle={{
+              borderRadius: '5px',
+              boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)',
+            }}
+          />
+          {/* Best move arrow overlay */}
+          {showBestArrow && bestMove && !isAnalyzing && !mate && boardSize > 0 && (
+            (() => {
+              const uci = bestMove.trim();
+              const from = uci.slice(0, 2);
+              const to = uci.slice(2, 4);
+              const { x: x1, y: y1 } = squareToCenterXY(from, boardSize);
+              const { x: x2, y: y2 } = squareToCenterXY(to, boardSize);
+              return (
+                <svg
+                  width={boardSize}
+                  height={boardSize}
+                  viewBox={`0 0 ${boardSize} ${boardSize}`}
+                  style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2 }}
+                >
+                  <defs>
+                    <marker id="bestArrowHead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                      <path d="M0,0 L0,8 L8,4 z" fill="#2d6a4f" />
+                    </marker>
+                  </defs>
+                  <line
+                    x1={x1}
+                    y1={y1}
+                    x2={x2}
+                    y2={y2}
+                    stroke="#2d6a4f"
+                    strokeWidth={5}
+                    strokeOpacity={0.9}
+                    markerEnd="url(#bestArrowHead)"
+                  />
+                  {/* endpoints for visibility */}
+                  <circle cx={x1} cy={y1} r={4} fill="#2d6a4f" opacity={0.8} />
+                  <circle cx={x2} cy={y2} r={4} fill="#2d6a4f" opacity={0.9} />
+                </svg>
+              );
+            })()
+          )}
+        </div>
+      </div>
+      <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
+        <button
+          onClick={() => setShowBestArrow((v) => !v)}
+          disabled={!bestMove || isAnalyzing || !!mate}
+          title={bestMove ? `Best move: ${bestMove}` : 'Best move not available yet'}
+        >
+          {showBestArrow ? 'Hide Best Move Arrow' : 'Show Best Move Arrow'}
+        </button>
       </div>
 
       {/* Auth + Save/Load Controls */}

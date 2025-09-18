@@ -5,6 +5,7 @@ export default function useStockfish(fen) {
   const [evaluation, setEvaluation] = useState(null);
   const [bestMove, setBestMove] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [mate, setMate] = useState(null); // { winner: 'white'|'black', moves: number } | null
 
   useEffect(() => {
     if (!fen) return;
@@ -39,7 +40,19 @@ export default function useStockfish(fen) {
         setIsAnalyzing(false);
       } else if (msg.includes('score cp')) {
         const scoreMatch = msg.match(/score cp (-?\d+)/);
-        if (scoreMatch) setEvaluation(parseInt(scoreMatch[1]) / 100);
+        if (scoreMatch) {
+          setEvaluation(parseInt(scoreMatch[1]) / 100);
+          setMate(null);
+        }
+      } else if (msg.includes('score mate')) {
+        const mateMatch = msg.match(/score mate (-?\d+)/);
+        if (mateMatch) {
+          const m = parseInt(mateMatch[1], 10);
+          const winner = m > 0 ? 'white' : 'black';
+          setMate({ winner, moves: Math.abs(m) });
+          // Push evaluation far toward winner for any components that rely on numeric eval
+          setEvaluation(m > 0 ? 99 : -99);
+        }
       }
     };
 
@@ -51,5 +64,5 @@ export default function useStockfish(fen) {
     };
   }, [fen]);
 
-  return { evaluation, bestMove, isAnalyzing };
+  return { evaluation, bestMove, isAnalyzing, mate };
 }
